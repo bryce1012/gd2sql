@@ -41,7 +41,7 @@ function get_entry_record($entry) {
     global $db;
 
     $slot = $entry['slot'];
-    $date = "{$slot['year']}-{$slot['month']}-{$slot['day']}";
+    $date = $slot['year']."-".str_pad($slot['month'], 2, "0", STR_PAD_LEFT)."-".str_pad($slot['day'], 2, "0", STR_PAD_LEFT);
     $entry_uuid = $entry['uuid'];
 
     $record = $db->querySingle("SELECT * FROM entry WHERE uuid = '{$entry_uuid}'", true);
@@ -50,6 +50,7 @@ function get_entry_record($entry) {
         $record = $db->querySingle("SELECT * FROM entry WHERE uuid = '{$entry_uuid}'", true);
     }
 
+    echo "processed ".$date."\n";
     return $record;
 }
 
@@ -82,13 +83,19 @@ function get_input($fn)
     $parsed_input = "";
     $raw_input = file_get_contents($fn);
 
-    $START = "GridDiary.json{";
-    $END = "PK" . chr(1) . chr(2);
-    $start_pos = strpos($raw_input, $START, 0) + (strlen($START) - 1);
-    $end_pos = strpos($raw_input, $END, $start_pos);
-    $trimmed_input = substr($raw_input, $start_pos, ($end_pos - $start_pos));
-
     if (false) {
+        $START = "GridDiary.json{";
+        $END = "PK" . chr(1) . chr(2);
+        $start_pos = strpos($raw_input, $START, 0) + (strlen($START) - 1);
+        $end_pos = strpos($raw_input, $END, $start_pos);
+        $trimmed_input = substr($raw_input, $start_pos, ($end_pos - $start_pos));
+        die($trimmed_input);
+    } else {
+        $trimmed_input = $raw_input;
+    }
+
+    $decode = false;
+    if ($decode) {
         $converted_input = mb_convert_encoding($trimmed_input, "Windows-1252", "UTF-8");
         $parsed_input = json_decode($converted_input, TRUE);
     } else {
