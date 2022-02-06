@@ -11,16 +11,17 @@ $title_cache = [];
 $force_update = false;
 $db = new SQLite3($db_file);
 $sql = array('insert_chunk' => $db->prepare('INSERT INTO chunk (uuid,entry_id,title_id,content) VALUES (:uuid,:entry_id,:title_id,:content)'),
-             'update_chunk' => $db->prepare('UPDATE chunk SET entry_id = :entry_id, title_id = :title_id, content = :content WHERE uuid = :uuid'));
+             'update_chunk' => $db->prepare('UPDATE chunk SET uuid = :uuid, entry_id = :entry_id, title_id = :title_id, content = :content WHERE id = :id'));
 
 $input = get_input($json_file);
 
 $entries = $input['journals'][0]['entries'];
 foreach ($entries as $entry) {
-    $entry_record = get_entry_record($entry);
+    list($entry_record, $chunks) = get_entry_data($entry);
     foreach ($entry['grids'] as $grid) {
-        insert_chunk($entry_record['id'], $grid);
+        insert_chunk($entry_record['id'], $chunks, $grid);
     }
+    echo "\n";
 }
 
 function get_title_id($title) {
@@ -37,35 +38,66 @@ function get_title_id($title) {
     return $title_cache[$hash];
 }
 
-function get_entry_record($entry) {
+function get_entry_data($entry) {
     global $db;
 
     $slot = $entry['slot'];
     $date = $slot['year']."-".str_pad($slot['month'], 2, "0", STR_PAD_LEFT)."-".str_pad($slot['day'], 2, "0", STR_PAD_LEFT);
     $entry_uuid = $entry['uuid'];
 
+    $chunks = array(); $get_existing = true;
     $record = $db->querySingle("SELECT * FROM entry WHERE uuid = '{$entry_uuid}'", true);
     if (!$record) {
-        $db->querySingle("INSERT INTO entry (uuid,date) VALUES ('{$entry_uuid}','{$date}')");
-        $record = $db->querySingle("SELECT * FROM entry WHERE uuid = '{$entry_uuid}'", true);
+        $record = $db->querySingle("SELECT * FROM entry WHERE date = '{$date}'", true);
+        if (!$record) {
+            $db->querySingle("INSERT INTO entry (uuid,date) VALUES ('{$entry_uuid}','{$date}')");
+            $record = $db->querySingle("SELECT * FROM entry WHERE uuid = '{$entry_uuid}'", true);
+            $get_existing = false;
+        }
+    }
+    if ($get_existing) {
+        echo "Checking {$date}... ";
+        $chunkResult = $db->query("SELECT * FROM chunk WHERE entry_id = {$record['id']}");
+        while ($row = $chunkResult->fetchArray()) {
+            $chunks[$row['title_id']] = $row;
+        }
+    } else {
+        echo "Inserting {$date}... ";
     }
 
-    echo "processed ".$date."\n";
-    return $record;
+    return array($record, $chunks);
 }
 
-function insert_chunk($entry_id, $chunk) {
+function insert_chunk($entry_id, $existing, $chunk) {
     global $db, $sql, $force_update;
 
     $chunk_uuid = $chunk['uuid'];
     $title_id = get_title_id($chunk['title']);
     $content = $chunk['content'];
 
-    $record = $db->querySingle("SELECT * FROM chunk WHERE uuid = '{$chunk_uuid}'", true);
-    if (!$record) {
+    $insert = false;
+    $update = false;
+    $ec = null;
+    if (!array_key_exists($title_id, $existing)) {
+        $insert = true;
+    } else {
+        $ec = $existing[$title_id];
+        if ($ec['uuid'] == $chunk_uuid) {
+            $update = false;
+        } else if ($ec['content'] == $content) {
+            $update = false;
+        } else {
+            $update = true;
+        }
+    }
+
+    if ($insert) {
+        echo "Inserting T{$title_id}... ";
         $statement = $sql['insert_chunk'];
-    } else if ($force_update) {
+    } else if ($update) {
+        echo "Updating T{$title_id}... ";
         $statement = $sql['update_chunk'];
+        $statement->bindValue(':id', $ec['id']);
     }
 
     if (isset($statement)) {
